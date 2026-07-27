@@ -1,0 +1,35 @@
+[project]
+name = "israeli-news-factcheck"
+version = "0.1.0"
+description = "Automated fact-checking platform for Israeli news channels (N12, Channel 13, Channel 14)"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.5",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "playwright>=1.40",
+    "anthropic>=0.40",
+    "httpx>=0.27",
+    "streamlit>=1.35",
+    "plotly>=5.20",
+    "pandas>=2.2",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "tenacity>=8.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["common", "orchestrator", "scrapers", "factcheck", "database", "dashboard"]

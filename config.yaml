@@ -1,0 +1,45 @@
+# Central configuration for the fact-checking pipeline.
+
+channels:
+  n12:
+    enabled: true
+    display_name: "ערוץ 12"
+    base_url: "https://www.mako.co.il"
+  channel13:
+    enabled: false
+    display_name: "ערוץ 13"
+    base_url: "https://13tv.co.il"
+  channel14:
+    enabled: false
+    display_name: "ערוץ 14"
+    base_url: "https://www.now14.co.il"
+
+# The ONLY categories the system processes. Anything else is discarded
+# at the scraper boundary and rejected by a DB CHECK constraint.
+allowed_categories:
+  security: "ביטחוני"
+  world: "בעולם"
+  political: "פוליטי"
+  elections: "בחירות"
+  economy: "כלכלה"
+
+scraping:
+  backfill_days: 30
+  max_articles_per_run: 50
+  screenshot_dir: "data/screenshots"
+  request_delay_seconds: 2
+
+factcheck:
+  model: "claude-sonnet-4-5"
+  max_search_results: 8
+  max_retries: 3
+
+# Lie Index (מדד שקר) verdict weights: higher = less truthful.
+lie_index:
+  weights:
+    "True": 0.0
+    "Mostly True": 0.2
+    "Misleading": 0.6
+    "False": 1.0
+  # Exponential recency decay half-life, in days.
+  recency_half_life_days: 14
