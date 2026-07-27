@@ -27,6 +27,7 @@ class ScrapingConfig(BaseModel):
 
 class FactCheckConfig(BaseModel):
     model: str
+    effort: str = "high"
     max_search_results: int = 8
     max_retries: int = 3
 

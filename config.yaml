@@ -30,7 +30,8 @@ scraping:
   request_delay_seconds: 2
 
 factcheck:
-  model: "claude-sonnet-4-5"
+  model: "claude-opus-5"
+  effort: "high"
   max_search_results: 8
   max_retries: 3
 
