@@ -12,7 +12,8 @@ architected to scale to Channels 13 and 14 — with a fully Hebrew, RTL Streamli
    boundary and rejected again by a database CHECK constraint.
 3. **Fact-checks** each article's central claims with an LLM grounded by a web-search API,
    producing a structured verdict (`True | Mostly True | Misleading | False`), a
-   **Hebrew** explanation, and verified source URLs.
+   **Hebrew** explanation, and verified source URLs. A verdict may only cite URLs that
+   actually came back from search, so hallucinated sources can't reach the database.
 4. **Stores** everything in a relational DB (SQLite by default, PostgreSQL-ready).
 5. **Visualizes** results in a fully Hebrew, right-to-left dashboard: a recent-checks feed
    with screenshots, a weighted per-channel **Lie Index (מדד שקר)**, per-category
@@ -56,19 +57,62 @@ table view — no meaning rests on colour alone. The Streamlit theme is pinned t
 light in `.streamlit/config.toml` so the validated palette is what renders;
 re-validate before changing any hex in `dashboard/theme.py`.
 
+## Providers
+
+Both the LLM and the search backend are pluggable — `factcheck/llm_provider.py` and
+`factcheck/search_provider.py` each expose an ABC plus a name-keyed factory, so
+switching vendors is a config change, not a code change.
+
+| Role | Options | Default |
+|---|---|---|
+| LLM | `gemini`, `anthropic` | `gemini` — free tier via Google AI Studio |
+| Search | `perplexity`, `tavily`, `serper` | `perplexity` |
+
+Set the LLM in `config.yaml` (`factcheck.provider`) and search via `SEARCH_PROVIDER`
+in `.env`. Each provider reads its own key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`,
+`SEARCH_API_KEY`).
+
+**Cost:** Gemini's free tier is genuinely free but capped at 10 requests/minute and
+250/day. The pipeline makes two LLM calls per article, so that's roughly 125 articles
+a day; the client throttles itself to stay inside the limit and backs off on 429s
+rather than dying mid-backfill. Perplexity's API is usage-billed — for a zero-cost
+setup, switch `SEARCH_PROVIDER=tavily` and use Tavily's free tier.
+
 ## Setup
+
+macOS / Linux:
 
 ```bash
 pip install -e ".[dev]"
 playwright install chromium
-cp .env.example .env   # fill in ANTHROPIC_API_KEY, SEARCH_API_KEY
+cp .env.example .env     # fill in GEMINI_API_KEY and SEARCH_API_KEY
+```
+
+Windows (use `py` if `python` isn't on your PATH):
+
+```cmd
+py -m pip install -e ".[dev]"
+py -m playwright install chromium
+copy .env.example .env
+notepad .env
 ```
 
 ## Usage
 
 ```bash
-python -m orchestrator.cli run --channels n12          # scrape + fact-check latest
-python -m orchestrator.cli backfill --channels n12     # backfill past 30 days
-streamlit run dashboard/app.py                         # Hebrew RTL dashboard
-pytest                                                 # tests
+python -m orchestrator.cli run --channels n12                  # scrape + fact-check latest
+python -m orchestrator.cli backfill --channels n12 --days 30   # backfill the past month
+python -m orchestrator.cli status                              # what's in the database
+streamlit run dashboard/app.py                                 # Hebrew RTL dashboard
+pytest                                                         # tests
 ```
+
+Start small to confirm your keys work before committing to a full backfill —
+`--limit` caps how many articles a run processes:
+
+```bash
+python -m orchestrator.cli backfill --channels n12 --days 2 --limit 1
+python -m orchestrator.cli status
+```
+
+On Windows, substitute `py -m` for `python -m` (and `py -m streamlit run …`).

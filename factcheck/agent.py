@@ -8,11 +8,10 @@ being stored.
 """
 from __future__ import annotations
 
-import anthropic
-
 from common.labels import CHANNEL_HE
 from common.logging import get_logger
 from common.models import Article, FactCheckResult
+from factcheck.llm_provider import LLMProvider, LLMRefusal
 from factcheck.prompts import (
     CLAIM_EXTRACTION_SYSTEM,
     FACT_CHECK_SYSTEM,
@@ -26,29 +25,25 @@ from factcheck.validators import VerdictRejected, validate_verdict
 
 log = get_logger("factcheck.agent")
 
-DEFAULT_MODEL = "claude-opus-5"
-
 
 class FactCheckFailed(Exception):
     """The article could not be fact-checked (refusal, or retries exhausted)."""
 
 
 class FactCheckerAgent:
+    """Vendor-neutral: it talks to an LLMProvider and a SearchProvider only."""
+
     def __init__(
         self,
         search_provider: SearchProvider,
-        api_key: str | None = None,
-        model: str = DEFAULT_MODEL,
+        llm: LLMProvider,
         max_search_results: int = 8,
         max_retries: int = 3,
-        effort: str = "high",
     ):
-        self.client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
         self.search = search_provider
-        self.model = model
+        self.llm = llm
         self.max_search_results = max_search_results
         self.max_retries = max_retries
-        self.effort = effort
 
     # -- public API --------------------------------------------------------
 
@@ -61,26 +56,18 @@ class FactCheckerAgent:
 
     def extract_claim(self, article: Article) -> str:
         """Reduce the article to the single factual claim worth checking."""
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=1000,
-            system=CLAIM_EXTRACTION_SYSTEM,
-            output_config={"effort": "low"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"<כותרת>\n{article.headline}\n</כותרת>\n\n"
-                        f"<גוף_הכתבה>\n{article.full_text[:8000]}\n</גוף_הכתבה>\n\n"
-                        "מהי הטענה העובדתית המרכזית בכתבה?"
-                    ),
-                }
-            ],
+        prompt = (
+            f"<כותרת>\n{article.headline}\n</כותרת>\n\n"
+            f"<גוף_הכתבה>\n{article.full_text[:8000]}\n</גוף_הכתבה>\n\n"
+            "מהי הטענה העובדתית המרכזית בכתבה?"
         )
-        if response.stop_reason == "refusal":
-            raise FactCheckFailed("claim extraction refused by safety classifier")
-        claim = "".join(b.text for b in response.content if b.type == "text").strip()
-        return claim or article.headline
+        try:
+            claim = self.llm.complete_text(
+                system=CLAIM_EXTRACTION_SYSTEM, prompt=prompt, max_tokens=1000
+            )
+        except LLMRefusal as exc:
+            raise FactCheckFailed(f"claim extraction refused: {exc}") from exc
+        return claim.strip() or article.headline
 
     def gather_evidence(self, article: Article, claim: str) -> list[SearchResult]:
         """Search once per query angle, de-duplicating by URL."""
@@ -117,33 +104,34 @@ class FactCheckerAgent:
             channel_he=CHANNEL_HE[article.channel],
             results=results,
         )
-        messages: list[dict] = [{"role": "user", "content": prompt}]
+        # Rejection feedback is appended to the prompt rather than sent as an
+        # extra turn, so the retry works the same on providers with no
+        # multi-turn message list.
+        attempt_prompt = prompt
         last_reason = ""
 
         for attempt in range(1, self.max_retries + 1):
-            response = self.client.messages.parse(
-                model=self.model,
-                max_tokens=8000,
-                system=FACT_CHECK_SYSTEM,
-                output_config={"effort": self.effort},
-                messages=messages,
-                output_format=LLMVerdict,
-            )
-            if response.stop_reason == "refusal":
-                raise FactCheckFailed("fact-check refused by safety classifier")
+            try:
+                verdict = self.llm.complete_structured(
+                    system=FACT_CHECK_SYSTEM,
+                    prompt=attempt_prompt,
+                    schema=LLMVerdict,
+                    max_tokens=8000,
+                )
+            except LLMRefusal as exc:
+                raise FactCheckFailed(f"fact-check refused: {exc}") from exc
 
             try:
-                result = validate_verdict(response.parsed_output, allowed_urls)
+                result = validate_verdict(verdict, allowed_urls)
             except VerdictRejected as exc:
                 last_reason = str(exc)
                 log.warning(
                     "verdict rejected",
                     extra={"ctx": {"attempt": attempt, "reason": last_reason}},
                 )
-                messages = [
-                    {"role": "user", "content": prompt},
-                    {"role": "user", "content": HEBREW_RETRY_NOTE.format(reason=last_reason)},
-                ]
+                attempt_prompt = (
+                    f"{prompt}\n\n{HEBREW_RETRY_NOTE.format(reason=last_reason)}"
+                )
                 continue
 
             log.info(

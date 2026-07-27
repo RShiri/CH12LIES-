@@ -8,6 +8,7 @@ import pytest
 from common.labels import Verdict
 from common.models import Article
 from factcheck.agent import FactCheckerAgent, FactCheckFailed
+from factcheck.llm_provider import LLMProvider, LLMRefusal
 from factcheck.schemas import LLMVerdict
 from factcheck.search_provider import SearchProvider, SearchResult, get_search_provider
 from factcheck.validators import VerdictRejected, validate_verdict
@@ -37,36 +38,34 @@ class StubSearch(SearchProvider):
         return list(self.results)
 
 
-class StubMessages:
-    """Mimics client.messages: `.create` for claims, `.parse` for verdicts."""
+class StubLLM(LLMProvider):
+    """An LLM backend that returns scripted answers — no vendor, no network."""
 
-    def __init__(self, claim: str, verdicts: list, stop_reason: str = "end_turn"):
+    def __init__(self, claim: str, verdicts: list, refuse: bool = False):
         self.claim = claim
         self.verdicts = list(verdicts)
-        self.stop_reason = stop_reason
-        self.parse_calls: list[dict] = []
+        self.refuse = refuse
+        self.structured_calls: list[dict] = []
 
-    def create(self, **kwargs):
-        return SimpleNamespace(
-            stop_reason=self.stop_reason,
-            content=[SimpleNamespace(type="text", text=self.claim)],
-        )
+    def complete_text(self, *, system: str, prompt: str, max_tokens: int = 1000) -> str:
+        if self.refuse:
+            raise LLMRefusal("stubbed refusal")
+        return self.claim
 
-    def parse(self, **kwargs):
-        self.parse_calls.append(kwargs)
-        verdict = self.verdicts.pop(0)
-        return SimpleNamespace(stop_reason=self.stop_reason, parsed_output=verdict)
+    def complete_structured(self, *, system: str, prompt: str, schema, max_tokens: int = 8000):
+        self.structured_calls.append({"system": system, "prompt": prompt, "schema": schema})
+        if self.refuse:
+            raise LLMRefusal("stubbed refusal")
+        return self.verdicts.pop(0)
 
 
-def make_agent(search: StubSearch, verdicts: list, claim="הטענה המרכזית", stop_reason="end_turn"):
-    agent = FactCheckerAgent.__new__(FactCheckerAgent)  # bypass real Anthropic client
-    agent.client = SimpleNamespace(messages=StubMessages(claim, verdicts, stop_reason))
-    agent.search = search
-    agent.model = "claude-opus-5"
-    agent.max_search_results = 8
-    agent.max_retries = 3
-    agent.effort = "high"
-    return agent
+def make_agent(search: StubSearch, verdicts: list, claim="הטענה המרכזית", refuse=False):
+    return FactCheckerAgent(
+        search_provider=search,
+        llm=StubLLM(claim, verdicts, refuse=refuse),
+        max_search_results=8,
+        max_retries=3,
+    )
 
 
 ARTICLE = Article(
@@ -150,8 +149,8 @@ def test_retries_then_succeeds_after_bad_verdict():
     result = agent.check(ARTICLE)
     assert result.fact_check_status is Verdict.FALSE
     # Second attempt carries the rejection reason back to the model.
-    second_call = agent.client.messages.parse_calls[1]
-    assert "עברית" in second_call["messages"][-1]["content"]
+    second_call = agent.llm.structured_calls[1]
+    assert "עברית" in second_call["prompt"]
 
 
 def test_gives_up_after_max_retries():
@@ -166,7 +165,7 @@ def test_gives_up_after_max_retries():
 
 
 def test_refusal_is_surfaced_not_swallowed():
-    agent = make_agent(StubSearch(), [good_verdict()], stop_reason="refusal")
+    agent = make_agent(StubSearch(), [good_verdict()], refuse=True)
     with pytest.raises(FactCheckFailed, match="refused"):
         agent.check(ARTICLE)
 

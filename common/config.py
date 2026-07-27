@@ -26,7 +26,9 @@ class ScrapingConfig(BaseModel):
 
 
 class FactCheckConfig(BaseModel):
+    provider: str = "gemini"
     model: str
+    rate_limit_per_minute: int | None = None
     effort: str = "high"
     max_search_results: int = 8
     max_retries: int = 3
@@ -46,9 +48,11 @@ class Settings(BaseModel):
 
     # from environment
     db_url: str = "sqlite:///data/db.sqlite3"
-    anthropic_api_key: str = ""
-    search_provider: str = "tavily"
+    search_provider: str = "perplexity"
     search_api_key: str = ""
+    # The LLM key is deliberately absent: each provider resolves its own env
+    # var (GEMINI_API_KEY, ANTHROPIC_API_KEY) in `get_llm_provider`, so adding
+    # a backend never means touching this class.
 
 
 @lru_cache
@@ -59,7 +63,6 @@ def get_settings(config_path: Path | None = None) -> Settings:
     return Settings(
         **raw,
         db_url=os.getenv("DB_URL", "sqlite:///data/db.sqlite3"),
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-        search_provider=os.getenv("SEARCH_PROVIDER", "tavily"),
+        search_provider=os.getenv("SEARCH_PROVIDER", "perplexity"),
         search_api_key=os.getenv("SEARCH_API_KEY", ""),
     )

@@ -166,17 +166,27 @@ class PipelineOrchestrator:
 def build_orchestrator(settings) -> PipelineOrchestrator:
     """Assemble the pipeline from configuration — used by the CLI."""
     from database.repository import get_repository
+    from factcheck.llm_provider import get_llm_provider
     from factcheck.search_provider import get_search_provider
+
+    llm_kwargs = {}
+    # `effort` is an Anthropic-only knob; passing it to Gemini would be a
+    # TypeError, so it is only forwarded to the provider that understands it.
+    if settings.factcheck.provider == "anthropic":
+        llm_kwargs["effort"] = settings.factcheck.effort
 
     return PipelineOrchestrator(
         repository=get_repository(settings.db_url),
         fact_checker=FactCheckerAgent(
             search_provider=get_search_provider(settings.search_provider, settings.search_api_key),
-            api_key=settings.anthropic_api_key or None,
-            model=settings.factcheck.model,
+            llm=get_llm_provider(
+                settings.factcheck.provider,
+                model=settings.factcheck.model,
+                rate_limit=settings.factcheck.rate_limit_per_minute,
+                **llm_kwargs,
+            ),
             max_search_results=settings.factcheck.max_search_results,
             max_retries=settings.factcheck.max_retries,
-            effort=settings.factcheck.effort,
         ),
         screenshot_dir=settings.scraping.screenshot_dir,
         request_delay_seconds=settings.scraping.request_delay_seconds,

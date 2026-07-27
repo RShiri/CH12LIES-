@@ -30,8 +30,14 @@ scraping:
   request_delay_seconds: 2
 
 factcheck:
-  model: "claude-opus-5"
-  effort: "high"
+  # LLM backend: gemini (free tier via Google AI Studio) or anthropic.
+  provider: "gemini"
+  model: "gemini-2.5-flash"
+  # Self-imposed requests/minute. Gemini's free tier allows 10 RPM and 250
+  # requests/day; the pipeline uses two calls per article, so roughly 125
+  # articles a day. Set 0 to disable throttling on a paid tier.
+  rate_limit_per_minute: 10
+  effort: "high"          # anthropic only — ignored by gemini
   max_search_results: 8
   max_retries: 3
 
