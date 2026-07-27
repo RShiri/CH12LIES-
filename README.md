@@ -14,8 +14,10 @@ architected to scale to Channels 13 and 14 — with a fully Hebrew, RTL Streamli
    producing a structured verdict (`True | Mostly True | Misleading | False`), a
    **Hebrew** explanation, and verified source URLs.
 4. **Stores** everything in a relational DB (SQLite by default, PostgreSQL-ready).
-5. **Visualizes** results in a Hebrew RTL dashboard: recent-checks feed with screenshots,
-   a weighted per-channel **Lie Index (מדד שקר)**, and per-category truth/lie charts.
+5. **Visualizes** results in a fully Hebrew, right-to-left dashboard: a recent-checks feed
+   with screenshots, a weighted per-channel **Lie Index (מדד שקר)**, per-category
+   truth/lie charts, and an educational **"איך המערכת עובדת"** tab that explains the whole
+   pipeline in plain Hebrew for a reader with no technical background.
 
 ## Architecture — Virtual Agents
 
@@ -28,6 +30,31 @@ architected to scale to Channels 13 and 14 — with a fully Hebrew, RTL Streamli
 | Dashboard | `dashboard/` | Hebrew RTL Streamlit app |
 
 Shared contracts (Pydantic models, category/verdict labels, config) live in `common/`.
+
+## The dashboard
+
+Four tabs, all in Hebrew:
+
+| Tab | What it shows |
+|---|---|
+| פיד בדיקות | Recent checks — screenshot, headline, verdict badge, Hebrew explanation, source links, plus a table view |
+| מדד שקר | Current Lie Index per channel and its trend over time |
+| פילוח לפי נושא | Verdict distribution and problematic-share across the five categories |
+| איך המערכת עובדת | Plain-Hebrew walkthrough of the pipeline, the four verdicts, how the index is calculated, and the system's limitations |
+
+**RTL:** `dashboard/styles.py` flips the app container, sidebar, headings, widget
+labels, tabs, metrics, tables and expanders, using CSS logical properties so
+spacing mirrors correctly. Latin runs (URLs, dates) are wrapped in isolated
+`dir="ltr"` spans so the bidi algorithm doesn't reorder them. Charts read
+right-to-left: bars grow from the right-hand label axis and the y-axis sits on
+the right.
+
+**Colour:** the four verdicts use an ordered green→red ramp validated for
+colour-vision deficiency against the light chart surface. Two steps fall below
+3:1 contrast, so every chart carries direct value labels and the feed ships a
+table view — no meaning rests on colour alone. The Streamlit theme is pinned to
+light in `.streamlit/config.toml` so the validated palette is what renders;
+re-validate before changing any hex in `dashboard/theme.py`.
 
 ## Setup
 

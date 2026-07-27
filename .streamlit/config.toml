@@ -1,0 +1,13 @@
+# The chart palette is validated against the light chart surface (#fcfcfb),
+# so the app commits to a light theme rather than shipping an unvalidated
+# dark variant. See dashboard/theme.py.
+[theme]
+base = "light"
+backgroundColor = "#f9f9f7"
+secondaryBackgroundColor = "#fcfcfb"
+textColor = "#0b0b0b"
+primaryColor = "#2a78d6"
+font = "sans serif"
+
+[server]
+headless = true
